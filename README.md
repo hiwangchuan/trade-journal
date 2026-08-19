@@ -1,6 +1,6 @@
 # Trade Journal 交易复盘
 
-本地优先的股票交易记录与复盘工具。支持真实股票配置、持续累计的原始/拆股复权日 K、同步审计与备份、买卖点、账户隔离、动态平仓费、移动平均持仓成本、持仓周期资金回本价、FIFO 已实现盈亏，以及严格隔离的历史背景和未来结果分析。
+本地优先的股票交易记录与复盘工具。支持真实股票配置、持续累计的原始/拆股复权日 K、同步审计与备份、买卖点、账户隔离、动态平仓费、移动平均持仓成本、持仓周期资金回本价、FIFO 已实现盈亏、严格隔离的历史背景和未来结果分析，以及基于结构化数据的 AI 个股复盘。
 
 完整说明请阅读：[中文技术文档](docs/TECHNICAL.md)。
 
@@ -23,6 +23,9 @@ npm run dev
 ```env
 TWELVE_DATA_API_KEY=
 EODHD_API_KEY=
+AI_BASE_URL=https://your-openai-compatible-service.example/v1
+AI_MODEL=your-model-name
+AI_API_KEY=
 DATABASE_URL=./data/trade-journal.db
 ```
 
@@ -39,6 +42,10 @@ CSV 表头：
 ```csv
 date,open,high,low,close,volume
 ```
+
+## AI 个股复盘
+
+股票工作区的“AI分析”会先打开数据说明弹窗，仅在用户点击“生成AI分析”后请求服务。服务端发送确定性行情指标、交易日期、价格、数量、手续费和策略标签，不发送交易理由、计划或备注。结果缓存 10 分钟；AI只解释现有数据，不直接预测股价或提供买卖建议。
 
 ## 常用命令
 

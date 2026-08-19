@@ -1,6 +1,6 @@
 # Trade Journal 技术文档
 
-> 文档版本：3.0  
+> 文档版本：3.1
 > 对应项目状态：2026-08-20  
 > 运行方式：macOS 本地 Web 应用
 
@@ -17,6 +17,7 @@ Trade Journal 是一个本地优先的股票交易记录与复盘系统。系统
 - 分离“交易发生时可知的历史背景”和“交易发生后的结果”；
 - 使用 FIFO 将买入和卖出配对并计算已实现盈亏；
 - 将分批买卖合并为完整持仓周期，统计扣费后的净收益、R 倍数和持仓时间；
+- 将确定性行情、成本和交易统计交给兼容 OpenAI Chat Completions 的模型做结构化复盘；
 - 在本机 SQLite 中持久化所有业务数据。
 
 系统不提供实盘下单、券商账户同步、实时 WebSocket 行情或投资建议。
@@ -30,6 +31,7 @@ Trade Journal 是一个本地优先的股票交易记录与复盘系统。系统
 | 图表 | Lightweight Charts 5 |
 | 数据库 | SQLite、better-sqlite3、Drizzle Schema |
 | 数据校验 | Zod |
+| AI 接口 | OpenAI-compatible Chat Completions |
 | 金额计算 | Decimal.js |
 | 测试 | Vitest |
 | 图标 | Lucide React |
@@ -44,7 +46,8 @@ Trade Journal 是一个本地优先的股票交易记录与复盘系统。系统
   │       └── /api/* Route Handlers
 │               ├── SQLite（交易、行情系列、K 线、同步日志、分析结果）
   │               ├── Twelve Data（QQQ、NOK 等美股）
-  │               └── EODHD（港股）
+  │               ├── EODHD（港股）
+  │               └── AI Gateway（仅用户主动生成时请求）
   │
   └── Lightweight Charts（日 K、成交量、均线、买卖标记）
 ```
@@ -67,6 +70,7 @@ src/
 ├── db/                      # SQLite 连接与 Drizzle Schema
 ├── lib/
 │   ├── analysis/            # 历史背景、结果、FIFO 等算法
+│   ├── ai/                  # AI结构化输入、输出校验与网关客户端
 │   ├── market-data/         # 数据源、增量同步、系列存储与质量检查
 │   ├── backup.ts            # SQLite 在线备份
 │   └── trades/              # 手续费与持久化逻辑
@@ -137,6 +141,9 @@ DATABASE_URL=./data/trade-journal.db
 ```env
 TWELVE_DATA_API_KEY=
 EODHD_API_KEY=
+AI_BASE_URL=https://your-openai-compatible-service.example/v1
+AI_MODEL=your-model-name
+AI_API_KEY=
 DATABASE_URL=./data/trade-journal.db
 ```
 
@@ -541,6 +548,23 @@ K 线唯一键：
 | GET | `/api/trades/export` | 导出 JSON |
 | POST | `/api/trades/import` | 导入交易 JSON |
 
+### 11.5 AI 个股复盘
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| POST | `/api/instruments/:id/ai-analysis` | 生成当前股票的结构化 AI 复盘 |
+
+接口先在服务端计算当前价格位置、MA20/MA60、ATR、成交量、近阶段涨跌、有效枢轴、完整持仓周期，以及按账户隔离的含手续费回本价。发送给模型的数据不包含 `reason`、`plan` 或 `note`。模型必须返回经过 Zod 校验的 JSON；相同模型和输入在进程内缓存 10 分钟。
+
+AI服务采用：
+
+```text
+POST {AI_BASE_URL}/chat/completions
+Authorization: Bearer {AI_API_KEY}
+```
+
+页面打开弹窗不会发出请求，只有点击“生成AI分析”才会向配置的服务传输结构化交易数据。
+
 新增交易核心字段示例：
 
 ```json
@@ -683,6 +707,10 @@ Key 错误正常返回 401；套餐限制返回 403；代码不存在返回 404�
 
 设置页保存后会即时设置当前进程环境变量。若手工编辑 `.env.local`，需要重启开发服务器。
 
+### AI分析按钮为什么只打开说明页
+
+这是隐私确认边界。打开弹窗只展示将发送的数据范围和当前模型；点击“生成AI分析”后才会把结构化指标与交易数值发送到 `AI_BASE_URL`。若按钮不可用，请检查 `AI_BASE_URL`、`AI_MODEL` 和 `AI_API_KEY` 是否同时配置，并重启服务。
+
 ### 修改行情源会不会删除交易
 
 不会删除交易或旧 K 线。系统创建独立候选行情系列；只有新系列成功返回非空数据并通过校验后才切换为活动系列，旧系列保留为归档数据。
@@ -703,6 +731,7 @@ Key 错误正常返回 401；套餐限制返回 403；代码不存在返回 404�
 - 账户通过正整数编号隔离，尚无账户名称、券商和基础货币管理页面；
 - 支持原始价格与拆股复权，不单独计算现金分红总回报；
 - JSON 导入优先按导出文件中的股票代码映射本地股票，目标数据库仍需预先添加对应股票。
+- AI复盘依赖第三方模型服务，只总结本地确定性计算结果，不读取新闻、财报或实时行情，也不输出投资建议；模型响应通常慢于本地计算。
 
 适合后续扩展的方向：
 
