@@ -24,18 +24,75 @@ export const instruments = sqliteTable("instruments", {
   ...timestamps,
 });
 
+export const marketDataSeries = sqliteTable("market_data_series", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  instrumentId: integer("instrument_id").notNull().references(() => instruments.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  providerSymbol: text("provider_symbol").notNull(),
+  interval: text("interval").notNull().default("1day"),
+  adjustment: text("adjustment", { enum: ["raw", "splits"] }).notNull().default("raw"),
+  currency: text("currency").notNull().default("USD"),
+  exchange: text("exchange").notNull().default(""),
+  timezone: text("timezone").notNull().default("UTC"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  earliestDate: text("earliest_date"),
+  latestDate: text("latest_date"),
+  candleCount: integer("candle_count").notNull().default(0),
+  dataRevision: integer("data_revision").notNull().default(0),
+  lastAttemptAt: text("last_attempt_at"),
+  lastSuccessAt: text("last_success_at"),
+  status: text("status").notNull().default("EMPTY"),
+  qualityMessage: text("quality_message").notNull().default(""),
+  ...timestamps,
+}, (table) => [
+  uniqueIndex("market_data_series_identity").on(table.instrumentId, table.provider, table.providerSymbol, table.interval, table.adjustment),
+  index("market_data_series_active").on(table.instrumentId, table.isActive),
+]);
+
 export const candles = sqliteTable("candles", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   instrumentId: integer("instrument_id").notNull().references(() => instruments.id, { onDelete: "cascade" }),
+  seriesId: integer("series_id").references(() => marketDataSeries.id, { onDelete: "cascade" }),
   interval: text("interval").notNull().default("1day"),
   timestamp: text("timestamp").notNull(),
   open: real("open").notNull(), high: real("high").notNull(), low: real("low").notNull(), close: real("close").notNull(),
   volume: real("volume").notNull(), source: text("source").notNull().default("mock"), adjustment: text("adjustment", { enum: ["raw", "splits"] }).notNull().default("raw"),
   ...timestamps,
 }, (table) => [
-  uniqueIndex("candles_instrument_interval_timestamp_adjustment").on(table.instrumentId, table.interval, table.timestamp, table.adjustment),
+  uniqueIndex("candles_series_timestamp").on(table.seriesId, table.timestamp),
   index("candles_instrument_timestamp").on(table.instrumentId, table.timestamp),
 ]);
+
+export const marketSyncRuns = sqliteTable("market_sync_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  seriesId: integer("series_id").notNull().references(() => marketDataSeries.id, { onDelete: "cascade" }),
+  mode: text("mode").notNull(),
+  status: text("status").notNull().default("RUNNING"),
+  requestedFrom: text("requested_from"),
+  requestedTo: text("requested_to"),
+  returnedCount: integer("returned_count").notNull().default(0),
+  insertedCount: integer("inserted_count").notNull().default(0),
+  updatedCount: integer("updated_count").notNull().default(0),
+  unchangedCount: integer("unchanged_count").notNull().default(0),
+  invalidCount: integer("invalid_count").notNull().default(0),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+  startedAt: text("started_at").notNull().default("CURRENT_TIMESTAMP"),
+  completedAt: text("completed_at"),
+}, (table) => [index("market_sync_runs_series_started").on(table.seriesId, table.startedAt)]);
+
+export const corporateActions = sqliteTable("corporate_actions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  instrumentId: integer("instrument_id").notNull().references(() => instruments.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  effectiveDate: text("effective_date").notNull(),
+  ratio: real("ratio"),
+  cashAmount: real("cash_amount"),
+  currency: text("currency"),
+  source: text("source").notNull(),
+  status: text("status").notNull().default("DETECTED"),
+  createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
+}, (table) => [uniqueIndex("corporate_actions_identity").on(table.instrumentId, table.type, table.effectiveDate, table.source)]);
 
 export const strategies = sqliteTable("strategies", {
   id: integer("id").primaryKey({ autoIncrement: true }), name: text("name").notNull().unique(), description: text("description").notNull().default(""), createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
