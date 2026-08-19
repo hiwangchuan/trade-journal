@@ -1,0 +1,2 @@
+import { SettingsClient } from "@/components/settings-client";
+export default function SettingsPage() { return <div className="page-wrap"><div className="mb-6"><h1 className="page-title">设置</h1><p className="mt-2 text-sm text-muted">配置外观、行情来源、图表默认值和本地数据导入导出。</p></div><SettingsClient twelveDataConfigured={Boolean(process.env.TWELVE_DATA_API_KEY)} eodhdConfigured={Boolean(process.env.EODHD_API_KEY)} /></div>; }

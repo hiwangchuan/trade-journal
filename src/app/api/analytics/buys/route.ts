@@ -1,0 +1,3 @@
+import { NextResponse } from "next/server";
+import { listTrades } from "@/lib/data";
+export async function GET() { const trades = listTrades().filter((trade) => trade.side === "BUY"); const completed = trades.filter((trade) => trade.outcome?.return20d != null && trade.outcome?.mfe20d != null && trade.outcome?.mae20d != null); const values = completed.map((trade) => trade.outcome!.return20d!); const average20dPriceReturn = values.length ? values.reduce((sum,value) => sum + value,0) / values.length : null; return NextResponse.json({ eventCount: trades.length, completed20dCount: completed.length, average20dPriceReturn, upsideRate20d: values.length ? values.filter((value) => value > 0).length / values.length : null, trades }); }
