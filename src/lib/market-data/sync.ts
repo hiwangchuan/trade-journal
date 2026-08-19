@@ -10,6 +10,7 @@ import { MarketDataError } from "@/lib/market-data/types";
 import { TwelveDataProvider } from "@/lib/market-data/twelve-data";
 import { recalculateTradesForInstrument } from "@/lib/trades/persistence";
 import type { MarketDataProvider } from "@/lib/market-data/types";
+import type { Candle } from "@/types";
 
 type InstrumentRow = {
   id: number;
@@ -107,4 +108,35 @@ export function syncInstrumentMarketData(instrumentId: number, mode: Exclude<Mar
   const running = performSync(instrumentId, mode).finally(() => activeSyncs.delete(instrumentId));
   activeSyncs.set(instrumentId, running);
   return running;
+}
+
+export function importInstrumentMarketData(instrumentId: number, candles: Candle[]): MarketSyncResult {
+  const instrument = sqlite.prepare("SELECT data_provider AS dataProvider FROM instruments WHERE id=?").get(instrumentId) as { dataProvider: string } | undefined;
+  if (!instrument) throw new MarketDataError("SYMBOL_NOT_FOUND", "未找到该股票。");
+  if (instrument.dataProvider !== "csv") throw new MarketDataError("INVALID_RESPONSE", "请先在股票配置中将行情来源切换为CSV，再导入文件，避免不同来源的数据混合。");
+  const series = getOrCreateConfiguredSeries(instrumentId);
+  const requestedFrom = candles.reduce<string | undefined>((value, candle) => value === undefined || candle.time < value ? candle.time : value, undefined);
+  const requestedTo = candles.reduce<string | undefined>((value, candle) => value === undefined || candle.time > value ? candle.time : value, undefined);
+  const runId = startSyncRun(series.id, "csv", requestedFrom, requestedTo);
+  try {
+    if (!candles.length) throw new MarketDataError("INVALID_RESPONSE", "CSV文件没有可导入的K线。");
+    const merged = mergeCandles(series, candles.map((candle) => ({ ...candle, source: "csv", adjustment: series.adjustment })));
+    activateMarketSeries(series.id);
+    const quality = assessMarketSeriesQuality(series.id);
+    completeSyncRun(runId, merged);
+    sqlite.prepare("UPDATE instruments SET market_data_stale=0,last_market_refresh_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(instrumentId);
+    if (merged.inserted || merged.updated) recalculateTradesForInstrument(instrumentId);
+    const updatedSeries = getOrCreateConfiguredSeries(instrumentId);
+    return {
+      seriesId: series.id, mode: "csv", requestedFrom: requestedFrom ?? null, requestedTo: requestedTo ?? null,
+      returned: merged.returned, inserted: merged.inserted, updated: merged.updated, unchanged: merged.unchanged,
+      total: updatedSeries.candleCount, earliestDate: updatedSeries.earliestDate, latestDate: updatedSeries.latestDate,
+      qualityStatus: quality.status, qualityMessage: quality.message,
+    };
+  } catch (cause) {
+    const error = cause instanceof MarketDataError ? cause : new MarketDataError("UNKNOWN", cause instanceof Error ? cause.message : "CSV导入失败。");
+    failSyncRun(runId, error.code, error.message);
+    markSeriesSyncFailure(series.id, error.message);
+    throw error;
+  }
 }

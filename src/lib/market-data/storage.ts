@@ -67,6 +67,10 @@ export function getActiveMarketSeries(instrumentId: number): MarketSeries | null
   return row ? mapSeries(row) : null;
 }
 
+export function listMarketSeries(instrumentId: number): MarketSeries[] {
+  return (sqlite.prepare(`${seriesSelect} WHERE instrument_id=? ORDER BY is_active DESC,id DESC`).all(instrumentId) as Record<string, unknown>[]).map(mapSeries);
+}
+
 export function getOrCreateConfiguredSeries(instrumentId: number): MarketSeries {
   const instrument = sqlite.prepare(`SELECT id,data_provider AS dataProvider,provider_symbol AS providerSymbol,
     price_adjustment AS priceAdjustment,currency,exchange,timezone FROM instruments WHERE id=?`).get(instrumentId) as InstrumentSeriesConfig | undefined;
