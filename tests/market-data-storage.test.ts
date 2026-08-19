@@ -14,7 +14,9 @@ beforeAll(async () => {
   sqlite = database.sqlite;
   sqlite.exec(fs.readFileSync(path.join(process.cwd(), "drizzle", "0000_initial.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.join(process.cwd(), "drizzle", "0001_market_data_cache.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.join(process.cwd(), "drizzle", "0002_market_sync_settings.sql"), "utf8"));
   sqlite.exec("ALTER TABLE candles ADD COLUMN series_id INTEGER REFERENCES market_data_series(id) ON DELETE CASCADE");
+  sqlite.exec("ALTER TABLE market_data_series ADD COLUMN last_reconciled_at TEXT");
   sqlite.exec("DROP INDEX IF EXISTS candles_instrument_interval_timestamp_adjustment");
   sqlite.exec("CREATE UNIQUE INDEX candles_series_timestamp ON candles(series_id,timestamp)");
   sqlite.prepare(`INSERT INTO instruments(symbol,name,exchange,market,currency,timezone,data_provider,provider_symbol,price_adjustment)

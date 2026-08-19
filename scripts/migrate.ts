@@ -29,6 +29,10 @@ const candleColumns = database.prepare("PRAGMA table_info(candles)").all() as Ar
 if (!candleColumns.some((column) => column.name === "series_id")) {
   database.exec("ALTER TABLE candles ADD COLUMN series_id INTEGER REFERENCES market_data_series(id) ON DELETE CASCADE");
 }
+const seriesColumns = database.prepare("PRAGMA table_info(market_data_series)").all() as Array<{ name: string }>;
+if (!seriesColumns.some((column) => column.name === "last_reconciled_at")) {
+  database.exec("ALTER TABLE market_data_series ADD COLUMN last_reconciled_at TEXT");
+}
 
 // Preserve the semantics of existing real data: Twelve Data daily bars are split-adjusted
 // by default, while the EODHD endpoint previously used here returned raw OHLC.

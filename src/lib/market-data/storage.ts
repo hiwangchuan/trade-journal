@@ -21,6 +21,7 @@ export type MarketSeries = {
   dataRevision: number;
   lastAttemptAt: string | null;
   lastSuccessAt: string | null;
+  lastReconciledAt: string | null;
   status: string;
   qualityMessage: string;
 };
@@ -47,6 +48,7 @@ const seriesSelect = `SELECT id,instrument_id AS instrumentId,provider,provider_
   interval,adjustment,currency,exchange,timezone,is_active AS isActive,earliest_date AS earliestDate,
   latest_date AS latestDate,candle_count AS candleCount,data_revision AS dataRevision,
   last_attempt_at AS lastAttemptAt,last_success_at AS lastSuccessAt,status,quality_message AS qualityMessage
+  ,last_reconciled_at AS lastReconciledAt
   FROM market_data_series`;
 
 function mapSeries(row: Record<string, unknown>): MarketSeries {
@@ -58,6 +60,7 @@ function mapSeries(row: Record<string, unknown>): MarketSeries {
     latestDate: row.latestDate ? String(row.latestDate) : null, candleCount: Number(row.candleCount),
     dataRevision: Number(row.dataRevision), lastAttemptAt: row.lastAttemptAt ? String(row.lastAttemptAt) : null,
     lastSuccessAt: row.lastSuccessAt ? String(row.lastSuccessAt) : null, status: String(row.status),
+    lastReconciledAt: row.lastReconciledAt ? String(row.lastReconciledAt) : null,
     qualityMessage: String(row.qualityMessage ?? ""),
   };
 }
@@ -188,6 +191,25 @@ export function markSeriesSyncFailure(seriesId: number, message: string) {
   const series = sqlite.prepare("SELECT candle_count AS candleCount FROM market_data_series WHERE id=?").get(seriesId) as { candleCount: number };
   sqlite.prepare("UPDATE market_data_series SET status=?,quality_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .run(series.candleCount > 0 ? "STALE" : "ERROR", message, seriesId);
+}
+
+export type MarketSyncSettings = { autoSync: boolean; staleAfterHours: number; reconcileIntervalDays: number };
+
+export function getMarketSyncSettings(): MarketSyncSettings {
+  const row = sqlite.prepare(`SELECT auto_sync AS autoSync,stale_after_hours AS staleAfterHours,
+    reconcile_interval_days AS reconcileIntervalDays FROM market_sync_settings WHERE id=1`).get() as Record<string, unknown> | undefined;
+  return row
+    ? { autoSync: Boolean(row.autoSync), staleAfterHours: Number(row.staleAfterHours), reconcileIntervalDays: Number(row.reconcileIntervalDays) }
+    : { autoSync: true, staleAfterHours: 18, reconcileIntervalDays: 30 };
+}
+
+export function saveMarketSyncSettings(settings: MarketSyncSettings) {
+  sqlite.prepare(`INSERT INTO market_sync_settings(id,auto_sync,stale_after_hours,reconcile_interval_days,updated_at)
+    VALUES (1,?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET auto_sync=excluded.auto_sync,stale_after_hours=excluded.stale_after_hours,
+      reconcile_interval_days=excluded.reconcile_interval_days,updated_at=CURRENT_TIMESTAMP`)
+    .run(settings.autoSync ? 1 : 0, settings.staleAfterHours, settings.reconcileIntervalDays);
+  return getMarketSyncSettings();
 }
 
 export function listMarketSyncRuns(instrumentId: number, limit = 20) {

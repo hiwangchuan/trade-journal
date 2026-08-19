@@ -41,6 +41,7 @@ export const marketDataSeries = sqliteTable("market_data_series", {
   dataRevision: integer("data_revision").notNull().default(0),
   lastAttemptAt: text("last_attempt_at"),
   lastSuccessAt: text("last_success_at"),
+  lastReconciledAt: text("last_reconciled_at"),
   status: text("status").notNull().default("EMPTY"),
   qualityMessage: text("quality_message").notNull().default(""),
   ...timestamps,
@@ -93,6 +94,14 @@ export const corporateActions = sqliteTable("corporate_actions", {
   status: text("status").notNull().default("DETECTED"),
   createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
 }, (table) => [uniqueIndex("corporate_actions_identity").on(table.instrumentId, table.type, table.effectiveDate, table.source)]);
+
+export const marketSyncSettings = sqliteTable("market_sync_settings", {
+  id: integer("id").primaryKey(),
+  autoSync: integer("auto_sync", { mode: "boolean" }).notNull().default(true),
+  staleAfterHours: integer("stale_after_hours").notNull().default(18),
+  reconcileIntervalDays: integer("reconcile_interval_days").notNull().default(30),
+  updatedAt: text("updated_at").notNull().default("CURRENT_TIMESTAMP"),
+});
 
 export const strategies = sqliteTable("strategies", {
   id: integer("id").primaryKey({ autoIncrement: true }), name: text("name").notNull().unique(), description: text("description").notNull().default(""), createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),

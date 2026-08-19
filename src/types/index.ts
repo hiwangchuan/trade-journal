@@ -139,6 +139,7 @@ export type StockWorkspaceData = {
     dataRevision: number;
     lastAttemptAt: string | null;
     lastSuccessAt: string | null;
+    lastReconciledAt: string | null;
     status: string;
     qualityMessage: string;
   } | null;

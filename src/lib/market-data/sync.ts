@@ -3,7 +3,7 @@ import { EodhdProvider } from "@/lib/market-data/eodhd";
 import { MockProvider } from "@/lib/market-data/mock";
 import {
   activateMarketSeries, assessMarketSeriesQuality, completeSyncRun, failSyncRun,
-  getOrCreateConfiguredSeries, markSeriesSyncFailure, mergeCandles, startSyncRun,
+  getActiveMarketSeries, getMarketSyncSettings, getOrCreateConfiguredSeries, markSeriesSyncFailure, mergeCandles, startSyncRun,
   type MarketSyncMode,
 } from "@/lib/market-data/storage";
 import { MarketDataError } from "@/lib/market-data/types";
@@ -85,6 +85,7 @@ async function performSync(instrumentId: number, mode: Exclude<MarketSyncMode, "
     activateMarketSeries(series.id);
     const quality = assessMarketSeriesQuality(series.id);
     completeSyncRun(runId, merged);
+    if (mode === "reconcile") sqlite.prepare("UPDATE market_data_series SET last_reconciled_at=CURRENT_TIMESTAMP WHERE id=?").run(series.id);
     sqlite.prepare(`UPDATE instruments SET market_data_stale=0,last_market_refresh_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(instrumentId);
     if (merged.inserted || merged.updated) recalculateTradesForInstrument(instrumentId);
     const updatedSeries = getOrCreateConfiguredSeries(instrumentId);
@@ -139,4 +140,39 @@ export function importInstrumentMarketData(instrumentId: number, candles: Candle
     markSeriesSyncFailure(series.id, error.message);
     throw error;
   }
+}
+
+function databaseTime(value: string | null) {
+  if (!value) return 0;
+  return Date.parse(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
+}
+
+export async function autoSyncInstrumentIfDue(instrumentId: number) {
+  const settings = getMarketSyncSettings();
+  if (!settings.autoSync) return null;
+  const instrument = sqlite.prepare("SELECT data_provider AS dataProvider FROM instruments WHERE id=?").get(instrumentId) as { dataProvider: string } | undefined;
+  if (!instrument || instrument.dataProvider === "csv" || instrument.dataProvider === "mock") return null;
+  if (instrument.dataProvider === "twelve-data" && !process.env.TWELVE_DATA_API_KEY) return null;
+  if (instrument.dataProvider === "eodhd" && !process.env.EODHD_API_KEY) return null;
+
+  const series = getActiveMarketSeries(instrumentId);
+  const now = Date.now();
+  if (series?.lastAttemptAt && now - databaseTime(series.lastAttemptAt) < 10 * 60 * 1000) return null;
+  if (series?.lastSuccessAt && now - databaseTime(series.lastSuccessAt) < settings.staleAfterHours * 60 * 60 * 1000) return null;
+  const reconcileDue = !series?.lastReconciledAt || now - databaseTime(series.lastReconciledAt) >= settings.reconcileIntervalDays * 86_400_000;
+  return syncInstrumentMarketData(instrumentId, reconcileDue ? "reconcile" : "incremental");
+}
+
+export async function syncAllConfiguredInstruments(mode: "incremental" | "reconcile" = "incremental") {
+  const instruments = sqlite.prepare("SELECT id,symbol,data_provider AS dataProvider FROM instruments WHERE data_provider NOT IN ('csv','mock') ORDER BY id").all() as Array<{ id: number; symbol: string; dataProvider: string }>;
+  const results: Array<{ instrumentId: number; symbol: string; success: boolean; result?: MarketSyncResult; message?: string }> = [];
+  for (const instrument of instruments) {
+    try {
+      const result = await syncInstrumentMarketData(instrument.id, mode);
+      results.push({ instrumentId: instrument.id, symbol: instrument.symbol, success: true, result });
+    } catch (cause) {
+      results.push({ instrumentId: instrument.id, symbol: instrument.symbol, success: false, message: cause instanceof Error ? cause.message : "同步失败。" });
+    }
+  }
+  return results;
 }

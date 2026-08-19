@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, RefreshCw, ShieldCheck, TriangleAlert, X } from "lucide-react";
+import { Database, Download, RefreshCw, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { StockWorkspaceData } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +108,7 @@ export function MarketDataDialog({ instrumentId, summary, onClose }: {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div><h3 className="text-sm font-semibold">同步操作</h3><p className="mt-1 text-[10px] text-muted">日常使用增量同步；完整回填用于新数据源；深度校验会重新核对当前可访问历史。</p></div>
               <div className="flex flex-wrap gap-2">
+                <a className="control" href={`/api/instruments/${instrumentId}/candles/export`} download><Download size={13} />导出CSV</a>
                 <Button onClick={() => sync("incremental")} disabled={running !== null}><RefreshCw size={13} className={running === "incremental" ? "animate-spin" : ""} />增量同步</Button>
                 <Button onClick={() => sync("backfill")} disabled={running !== null}>完整回填</Button>
                 <Button onClick={() => sync("reconcile")} disabled={running !== null}>深度校验</Button>
