@@ -144,3 +144,67 @@ export type StockWorkspaceData = {
     qualityMessage: string;
   } | null;
 };
+
+export type DcaConfidence = "insufficient" | "low" | "medium" | "high";
+
+export type DcaForecastPoint = {
+  horizon: number;
+  date: string | null;
+  p20: number;
+  p50: number;
+  p80: number;
+  baselineP50: number;
+};
+
+export type DcaActualPoint = {
+  horizon: number;
+  date: string;
+  returnPct: number;
+  remainingQuantity: string;
+  realizedNetCash: string;
+  estimatedExitFee: string;
+};
+
+export type DcaCalibrationPoint = {
+  horizon: number;
+  actualReturnPct: number;
+  predictedMedianPct: number;
+  errorPct: number;
+  withinRange: boolean;
+};
+
+export type DcaCohortAnalysis = {
+  id: string;
+  runId: number;
+  accountId: number;
+  month: string;
+  anchorDate: string;
+  buyTradeIds: number[];
+  quantity: string;
+  averageEntryPrice: string;
+  investedAmount: string;
+  buyFees: string;
+  sampleCount: number;
+  confidence: DcaConfidence;
+  dataCutoffDate: string | null;
+  algorithmVersion: string;
+  forecastPoints: DcaForecastPoint[];
+  actualPoints: DcaActualPoint[];
+  calibration: DcaCalibrationPoint[];
+  currentReturnPct: number | null;
+  closed: boolean;
+};
+
+export type DcaAnalysisData = {
+  generatedAt: string;
+  algorithmVersion: string;
+  methodology: string;
+  cohorts: DcaCohortAnalysis[];
+  metrics: {
+    cohortCount: number;
+    sufficientCount: number;
+    calibrationCount: number;
+    intervalCoveragePct: number | null;
+    meanAbsoluteErrorPct: number | null;
+  };
+};

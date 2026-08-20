@@ -1,7 +1,8 @@
 import { TermTooltip } from "@/components/ui/term-tooltip";
 import { Button } from "@/components/ui/button";
 import { buildClosedCampaigns, campaignMetrics } from "@/lib/analysis/campaign-analysis";
-import { listInstruments, listTrades } from "@/lib/data";
+import { getWorkspace, listInstruments, listTrades } from "@/lib/data";
+import { getDcaAnalysis } from "@/lib/dca/persistence";
 import { strategyLabel } from "@/lib/display-labels";
 import { termGlossary } from "@/lib/term-glossary";
 import { formatPct } from "@/lib/utils";
@@ -49,6 +50,14 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const nearResistance = nearResistanceEligible.filter((trade) => trade.snapshot!.distanceToPivotHighPct! <= 3).length;
   const belowMa20 = belowMa20Eligible.filter((trade) => trade.snapshot!.distanceToMa20Pct! < 0).length;
   const profitFactor = currencies.size !== 1 ? "—" : campaignStats.profitFactor === Infinity ? "∞" : campaignStats.profitFactor === null ? "—" : campaignStats.profitFactor.toFixed(2);
+  const dcaAnalyses = instruments.filter((instrument) => (!selectedInstrumentId || instrument.id === selectedInstrumentId) && allTrades.some((trade) => trade.instrumentId === instrument.id && trade.side === "BUY")).flatMap((instrument) => {
+    const workspace = getWorkspace(instrument.symbol);
+    return workspace ? [{ instrument, analysis: getDcaAnalysis(workspace) }] : [];
+  });
+  const dcaCohorts = dcaAnalyses.flatMap(({ instrument, analysis }) => analysis.cohorts.map((cohort) => ({ instrument, cohort })));
+  const dcaCalibration = dcaCohorts.flatMap(({ cohort }) => cohort.calibration);
+  const dcaCoverage = dcaCalibration.length ? dcaCalibration.filter((point) => point.withinRange).length / dcaCalibration.length * 100 : null;
+  const dcaMae = mean(dcaCalibration.map((point) => Math.abs(point.errorPct)));
 
   return <div className="page-wrap space-y-7">
     <div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="page-title">分析</h1><p className="mt-2 text-sm text-muted">先看已平仓周期的真实净收益，再独立观察入场后市场表现。</p></div><form className="flex flex-wrap gap-2"><select className="field min-w-36" name="instrument" defaultValue={params.instrument ?? "all"}><option value="all">全部股票</option>{instruments.map((instrument) => <option key={instrument.id} value={instrument.id}>{instrument.symbol}</option>)}</select><select className="field min-w-36" name="strategy" defaultValue={params.strategy ?? "all"}><option value="all">全部策略</option>{strategies.map((strategy) => <option key={strategy} value={strategy}>{strategyLabel(strategy)}</option>)}</select><Button type="submit">应用筛选</Button></form></div>
@@ -59,6 +68,18 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
       ].map(([label, value]) => <div className="analytics-stat" key={label}><div className="text-[11px] text-muted">{label}</div><div className="mt-2 text-xl font-bold tracking-tight">{value}</div></div>)}</div>
       {campaigns.length < 20 ? <p className="mt-3 rounded-lg border border-yellow-500/20 bg-yellow-500/[.06] p-3 text-xs leading-5 text-yellow-200">当前完整周期少于20个，只适合逐笔复盘，不足以判断策略是否具有稳定优势。R倍数仅统计记录了有效计划止损的周期（{campaignStats.rSampleCount}/{campaigns.length}）。</p> : null}
       {campaigns.length ? <div className="panel mt-3 overflow-x-auto"><table className="data-table"><thead><tr><th>标的</th><th>周期</th><th>开仓</th><th>平仓</th><th>净收益率</th><th>净盈亏</th><th>R倍数</th><th>持仓</th></tr></thead><tbody>{campaigns.map((campaign) => <tr key={`${campaign.instrumentId}:${campaign.accountId}:${campaign.campaignNumber}`}><td>{instrumentMap.get(campaign.instrumentId)?.symbol ?? campaign.instrumentId}</td><td>#{campaign.campaignNumber}</td><td>{campaign.openedAt.slice(0, 10)}</td><td>{campaign.closedAt.slice(0, 10)}</td><td className={campaign.returnPct >= 0 ? "buy" : "sell"}>{formatPct(campaign.returnPct)}</td><td>{campaign.netPnl.toFixed(2)} {instrumentMap.get(campaign.instrumentId)?.currency}</td><td>{campaign.rMultiple === null ? "—" : `${campaign.rMultiple.toFixed(2)}R`}</td><td>{campaign.holdingDays} 天</td></tr>)}</tbody></table></div> : null}
+    </section>
+
+    <section><div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-sm font-semibold"><TermTooltip term="定投预测校准" description={termGlossary.dcaCalibration} /></h2><p className="mt-1 text-xs leading-5 text-muted">历史情景只使用每个批次买入日前的数据；实际收益包含买入费、真实卖出费和剩余持仓预计卖出费。该模块只做分析与预测，不连接券商或产生订单。</p></div><span className="shrink-0 text-xs text-muted">算法 {dcaAnalyses[0]?.analysis.algorithmVersion ?? "—"}</span></div>
+      <div className="analytics-grid">{[
+        ["月度批次", String(dcaCohorts.length)],
+        ["有效预测批次", String(dcaCohorts.filter(({ cohort }) => cohort.confidence !== "insufficient").length)],
+        ["校准观察点", String(dcaCalibration.length)],
+        ["P20–P80覆盖率", formatPct(dcaCoverage)],
+        ["预测中位绝对误差", formatPct(dcaMae)],
+      ].map(([label, value]) => <div className="analytics-stat" key={label}><div className="text-[11px] text-muted">{label}</div><div className="mt-2 text-xl font-bold tracking-tight">{value}</div></div>)}</div>
+      {dcaCohorts.length ? <div className="panel mt-3 overflow-x-auto"><table className="data-table"><thead><tr><th>标的</th><th>月份/账户</th><th>历史样本</th><th>含费投入</th><th>当前净收益</th><th>20日预测P50</th><th>20日实际</th><th>是否在区间</th></tr></thead><tbody>{dcaCohorts.map(({ instrument, cohort }) => { const point = cohort.calibration.find((item) => item.horizon === 20); const prediction = cohort.forecastPoints.find((item) => item.horizon === 20); return <tr key={`${instrument.id}:${cohort.id}`}><td>{instrument.symbol}</td><td>{cohort.month} / #{cohort.accountId}</td><td>{cohort.sampleCount} · {cohort.confidence === "insufficient" ? "不足" : cohort.confidence === "low" ? "低" : cohort.confidence === "medium" ? "中" : "较高"}</td><td>{cohort.investedAmount} {instrument.currency}</td><td className={(cohort.currentReturnPct ?? 0) >= 0 ? "buy" : "sell"}>{formatPct(cohort.currentReturnPct)}</td><td>{formatPct(prediction?.p50 ?? null)}</td><td>{formatPct(point?.actualReturnPct ?? null)}</td><td>{point ? point.withinRange ? "是" : "否" : "待观察"}</td></tr>; })}</tbody></table></div> : <p className="rounded-lg border border-line bg-surface p-4 text-xs text-muted">暂无可分析的月度买入批次。</p>}
+      {selectedStrategy ? <p className="mt-2 text-[10px] text-muted">定投批次按账户和月份合并，不随策略筛选拆分。</p> : null}
     </section>
 
     <section><div className="mb-3"><h2 className="text-sm font-semibold">入场后20日市场表现</h2><p className="mt-1 text-xs text-muted">这是成交价之后的价格路径，不是实际交易胜率，也没有代替已平仓周期盈亏。</p></div><div className="analytics-grid">{[["买入事件", String(buys.length)], ["完整20日样本", String(completedBuys.length)], ["平均20日价格表现", formatPct(mean(returns))], ["20日价格中位数", formatPct(median(returns))], ["20日上涨比例", formatPct(returns.length ? returns.filter((value) => value > 0).length / returns.length * 100 : null)]].map(([label, value]) => <div className="analytics-stat" key={label}><div className="text-[11px] text-muted">{label}</div><div className="mt-2 text-xl font-bold tracking-tight">{value}</div></div>)}</div></section>
