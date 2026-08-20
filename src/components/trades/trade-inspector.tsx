@@ -35,7 +35,7 @@ export function TradeInspector({ trade, trades, instrument, onClose, onEdit, onD
   return <aside className="inspector">
     <div className="flex min-h-14 items-center justify-between border-b border-line px-4"><span className="font-semibold">交易检查器</span><Button variant="ghost" className="h-8 w-8 p-0" onClick={onClose} aria-label="关闭"><X size={15} /></Button></div>
     <div className="tab-list">{(["context", "outcome", "journal"] as const).map((item) => <button key={item} onClick={() => setTab(item)} className={`tab-button ${tab === item ? "active" : ""}`}>{tabLabels[item]}</button>)}</div>
-    <div className="p-4">
+    <div key={tab} className="inspector-tab-panel p-4">
       <div className="mb-5 flex items-end justify-between"><div><div className={trade.side === "BUY" ? "buy text-base font-bold" : "sell text-base font-bold"}>{sideLabels[trade.side]} <span className="ml-1 text-ink">{Number(trade.price).toFixed(2)}</span></div><div className="mt-1 text-[11px] text-muted">{trade.tradeDate} · {trade.quantity} 股 · {instrument.currency} · 账户 #{trade.accountId}</div></div><div className="flex"><Button variant="ghost" className="h-8 w-8 p-0" onClick={onEdit} aria-label="编辑交易"><Edit3 size={14} /></Button><Button variant="ghost" className="h-8 w-8 p-0 text-sell" onClick={onDelete} aria-label="删除交易"><Trash2 size={14} /></Button></div></div>
 
       {tab === "context" ? <div>

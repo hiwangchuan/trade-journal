@@ -40,7 +40,8 @@ export class TwelveDataProvider implements MarketDataProvider {
 
   async getCandles({ symbol, adjustment = "splits", start, end }: { symbol: string; interval: "1day"; adjustment?: "raw" | "splits"; start?: string; end?: string }): Promise<Candle[]> {
     this.ensureKey();
-    const params = new URLSearchParams({ symbol, interval: "1day", outputsize: "5000", adjust: adjustment === "splits" ? "splits" : "none", apikey: this.apiKey! });
+    const params = new URLSearchParams({ symbol, interval: "1day", adjust: adjustment === "splits" ? "splits" : "none", apikey: this.apiKey! });
+    if (!start || !end) params.set("outputsize", "5000");
     if (start) params.set("start_date", start);
     if (end) params.set("end_date", end);
     const response = await fetch(`https://api.twelvedata.com/time_series?${params}`);

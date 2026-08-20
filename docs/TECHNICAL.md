@@ -1,7 +1,7 @@
 # Trade Journal 技术文档
 
-> 文档版本：2.0  
-> 对应项目状态：2026-08-19  
+> 文档版本：3.1
+> 对应项目状态：2026-08-20  
 > 运行方式：macOS 本地 Web 应用
 
 ## 1. 系统概述
@@ -10,12 +10,14 @@ Trade Journal 是一个本地优先的股票交易记录与复盘系统。系统
 
 - 管理真实持仓/关注股票；
 - 获取或导入日线 OHLCV K 线；
+- 将受接口窗口限制的行情持续增量累计到本地，并记录同步审计与数据质量；
 - 记录买入、卖出、数量、手续费、策略和交易理由；
 - 同时计算移动平均持仓成本线和包含历史卖出现金流的周期资金回本价；
 - 在 K 线上显示买卖点；
 - 分离“交易发生时可知的历史背景”和“交易发生后的结果”；
 - 使用 FIFO 将买入和卖出配对并计算已实现盈亏；
 - 将分批买卖合并为完整持仓周期，统计扣费后的净收益、R 倍数和持仓时间；
+- 将确定性行情、成本和交易统计交给兼容 OpenAI Chat Completions 的模型做结构化复盘；
 - 在本机 SQLite 中持久化所有业务数据。
 
 系统不提供实盘下单、券商账户同步、实时 WebSocket 行情或投资建议。
@@ -29,6 +31,7 @@ Trade Journal 是一个本地优先的股票交易记录与复盘系统。系统
 | 图表 | Lightweight Charts 5 |
 | 数据库 | SQLite、better-sqlite3、Drizzle Schema |
 | 数据校验 | Zod |
+| AI 接口 | OpenAI-compatible Chat Completions |
 | 金额计算 | Decimal.js |
 | 测试 | Vitest |
 | 图标 | Lucide React |
@@ -41,9 +44,10 @@ Trade Journal 是一个本地优先的股票交易记录与复盘系统。系统
   ├── Next.js 页面与 React 组件
   │       │
   │       └── /api/* Route Handlers
-  │               ├── SQLite（交易、股票、K 线、分析结果）
+│               ├── SQLite（交易、行情系列、K 线、同步日志、分析结果）
   │               ├── Twelve Data（QQQ、NOK 等美股）
-  │               └── EODHD（港股）
+  │               ├── EODHD（港股）
+  │               └── AI Gateway（仅用户主动生成时请求）
   │
   └── Lightweight Charts（日 K、成交量、均线、买卖标记）
 ```
@@ -66,12 +70,14 @@ src/
 ├── db/                      # SQLite 连接与 Drizzle Schema
 ├── lib/
 │   ├── analysis/            # 历史背景、结果、FIFO 等算法
-│   ├── market-data/         # Twelve Data、EODHD、CSV、Mock
+│   ├── ai/                  # AI结构化输入、输出校验与网关客户端
+│   ├── market-data/         # 数据源、增量同步、系列存储与质量检查
+│   ├── backup.ts            # SQLite 在线备份
 │   └── trades/              # 手续费与持久化逻辑
 └── types/                   # 共享类型
 
-drizzle/                     # 初始数据库 SQL
-scripts/                     # 迁移、初始化脚本
+drizzle/                     # 可重复执行的数据库 SQL
+scripts/                     # 迁移、备份、初始化脚本
 tests/                       # 算法与行情错误映射测试
 data/                        # 本地 SQLite 文件（不进入 Git）
 ```
@@ -135,6 +141,9 @@ DATABASE_URL=./data/trade-journal.db
 ```env
 TWELVE_DATA_API_KEY=
 EODHD_API_KEY=
+AI_BASE_URL=https://your-openai-compatible-service.example/v1
+AI_MODEL=your-model-name
+AI_API_KEY=
 DATABASE_URL=./data/trade-journal.db
 ```
 
@@ -170,18 +179,29 @@ DATABASE_URL=./data/trade-journal.db
 
 行情刷新严格按股票配置选择适配器。缺少密钥、代码错误或套餐不支持时会返回明确错误，不会自动写入 Mock K 线。
 
-### 6.3 远程刷新流程
+### 6.3 增量同步流程
 
 ```text
-点击“刷新行情”
+点击“增量同步”或打开已过期的股票页面
   → POST /api/market/refresh
   → 读取 instrument.data_provider / provider_symbol
-  → 调用 Twelve Data 或 EODHD
+  → 首次请求最大历史；以后从本地最新日期前 14 个自然日开始请求
   → 校验日期、正数价格、成交量、OHLC 高低关系和重复日期
-  → 在一个 SQLite 事务中原子替换该股票的完整 K 线数据集
-  → 在同一事务中重新计算该股票的全部交易分析
+  → 按 series_id + timestamp UPSERT：新增日期插入，重叠修正更新，旧历史保留
+  → 记录返回、新增、修正、未变化和失败原因
+  → 只有成功且非空的新系列才切换为活动系列
+  → 行情发生变化时重新计算该股票交易分析
   → 页面重新加载并绘制 K 线
 ```
+
+同步模式：
+
+- `incremental`：日常同步，默认带 14 个自然日重叠；
+- `backfill`：首次或手工请求当前套餐允许的最大历史；
+- `reconcile`：重新核对当前仍可访问的完整区间；
+- `csv`：对 CSV 管理的数据系列执行同样的增量合并。
+
+接口失败、限流、鉴权失败或返回空数组时不会删除任何 K 线。模块级并发锁保证同一进程内一只股票同时只有一个同步任务。
 
 统一 Candle 结构：
 
@@ -216,9 +236,17 @@ date,open,high,low,close,volume
 2026-08-18,51.00,52.10,50.60,51.80,28600200
 ```
 
-CSV 导入和远程刷新使用相同的完整校验、原子替换与交易重算流程。CSV 数据的复权口径由股票配置明确指定。
+CSV 导入和远程刷新使用相同的完整校验、增量合并、同步日志与交易重算流程。为防止来源混合，必须先将股票行情来源切换为 `csv`；导入默认不删除文件未包含的历史日期。CSV 数据的复权口径由股票配置明确指定。
 
-### 6.5 行情错误代码
+### 6.5 数据系列、自动补漏与质量状态
+
+`market_data_series` 按股票、供应商代码、周期和复权口径隔离历史。修改行情源或复权方式只会创建候选系列，旧活动系列继续可读；候选系列成功写入后才切换。
+
+打开股票详情页后，Next.js `after()` 在响应完成后检查数据是否过期，不阻塞页面。默认超过 18 小时触发同步、每 30 天进行一次深度校验，同一股票 10 分钟内不会重复尝试；这些参数可在设置页修改。批量同步按股票顺序执行，避免并发耗尽上游额度。
+
+质量状态包括 `EMPTY`、`HEALTHY`、`REVIEW`、`STALE` 和 `ERROR`。当前检查无效 OHLCV、重复日期、超过 10 天的可疑缺口和超过 60% 的单日跳变；跳变只标记复权/公司行为复核，不自动修改价格。
+
+### 6.6 行情错误代码
 
 | 代码 | HTTP 状态 | 含义 |
 | --- | ---: | --- |
@@ -417,7 +445,11 @@ MFE、MAE、20 日最高/最低和卖飞幅度只有在完整取得 20 根未来
 | 表 | 用途 |
 | --- | --- |
 | `instruments` | 股票基础信息、行情映射、复权口径、数据陈旧状态和预计平仓费模型 |
-| `candles` | 日线 OHLCV，按股票、周期、日期唯一 |
+| `market_data_series` | 按数据源、代码、周期和复权口径隔离的行情系列、范围与质量状态 |
+| `candles` | 日线 OHLCV，归属于行情系列 |
+| `market_sync_runs` | 每次同步的请求范围、计数、结果和错误 |
+| `corporate_actions` | 拆股、分红、代码变更等公司行为的扩展表 |
+| `market_sync_settings` | 自动同步开关、过期时间和深度校验周期 |
 | `trades` | 买卖交易、手续费、计划与备注 |
 | `strategies` | 交易策略字典 |
 | `tags` | 标签字典 |
@@ -431,10 +463,10 @@ MFE、MAE、20 日最高/最低和卖飞幅度只有在完整取得 20 根未来
 K 线唯一键：
 
 ```text
-(instrument_id, interval, timestamp, adjustment)
+(series_id, timestamp)
 ```
 
-每次刷新在事务内替换当前股票的完整数据集，避免更换供应商后混入旧供应商独有日期。
+新行情在事务内按唯一键合并。数据源或复权口径变化时使用新 `series_id`，因此不会把不同供应商的数据混成一条价格序列，也不会因接口只返回最近一年而删除更早的本地记录。
 
 ## 11. API 概览
 
@@ -448,6 +480,8 @@ K 线唯一键：
 | POST | `/api/instruments` | 新增股票 |
 | PATCH | `/api/instruments/:id` | 修改股票配置 |
 | GET | `/api/instruments/:id/candles` | 获取股票 K 线 |
+| GET | `/api/instruments/:id/candles/export` | 导出活动系列 CSV |
+| GET | `/api/instruments/:id/market-data` | 获取数据系列与同步日志 |
 | GET | `/api/instruments/search?q=...` | 搜索候选股票 |
 
 新增股票示例：
@@ -471,19 +505,20 @@ K 线唯一键：
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| POST | `/api/market/refresh` | 按股票配置刷新远程行情 |
+| POST | `/api/market/refresh` | 增量、回填或深度校验单只股票 |
 | POST | `/api/market/import` | 导入 OHLCV CSV |
+| POST | `/api/market/sync-all` | 顺序同步全部远程行情股票 |
 
 刷新请求：
 
 ```json
-{ "instrumentId": 2 }
+{ "instrumentId": 4, "mode": "incremental" }
 ```
 
 成功响应：
 
 ```json
-{ "count": 250 }
+{ "inserted": 1, "updated": 2, "unchanged": 7, "total": 5001 }
 ```
 
 ### 11.3 行情设置
@@ -492,6 +527,8 @@ K 线唯一键：
 | --- | --- | --- |
 | GET | `/api/settings/market-data` | 获取各来源是否已配置 |
 | POST | `/api/settings/market-data` | 保存指定来源的 API Key |
+| GET/POST | `/api/settings/market-sync` | 读取或保存自动同步策略 |
+| POST | `/api/settings/backup` | 创建一致性 SQLite 在线备份 |
 
 ```json
 {
@@ -510,6 +547,23 @@ K 线唯一键：
 | POST | `/api/trades/:id/recalculate` | 手动重算单笔交易 |
 | GET | `/api/trades/export` | 导出 JSON |
 | POST | `/api/trades/import` | 导入交易 JSON |
+
+### 11.5 AI 个股复盘
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| POST | `/api/instruments/:id/ai-analysis` | 生成当前股票的结构化 AI 复盘 |
+
+接口先在服务端计算当前价格位置、MA20/MA60、ATR、成交量、近阶段涨跌、有效枢轴、完整持仓周期，以及按账户隔离的含手续费回本价。发送给模型的数据不包含 `reason`、`plan` 或 `note`。模型必须返回经过 Zod 校验的 JSON；相同模型和输入在进程内缓存 10 分钟。
+
+AI服务采用：
+
+```text
+POST {AI_BASE_URL}/chat/completions
+Authorization: Bearer {AI_API_KEY}
+```
+
+页面打开弹窗不会发出请求，只有点击“生成AI分析”才会向配置的服务传输结构化交易数据。
 
 新增交易核心字段示例：
 
@@ -575,6 +629,9 @@ npx tsc --noEmit
 - 回本价；
 - Twelve Data 错误映射；
 - EODHD 错误映射。
+- 行情重复同步幂等；
+- 重叠日期修正且旧历史保留；
+- 更换数据源时活动系列安全切换。
 
 涉及 UI 的修改还应手工验证：
 
@@ -586,21 +643,27 @@ npx tsc --noEmit
 
 ## 14. 数据备份与恢复
 
-停止开发服务器后备份以下文件：
+设置页可以点击“创建数据库备份”，命令行也可以运行：
+
+```bash
+npm run db:backup
+```
+
+备份使用 SQLite Online Backup API 写入 `data/backups/trade-journal-<UTC时间>.db`，无需停止开发服务器。完整迁移还应单独安全保存：
 
 ```text
 data/trade-journal.db
 .env.local
 ```
 
-数据库也可能存在 WAL 辅助文件：
+直接复制运行中的数据库时还可能存在 WAL 辅助文件：
 
 ```text
 data/trade-journal.db-wal
 data/trade-journal.db-shm
 ```
 
-最稳妥的备份方式是在服务停止后复制主数据库。恢复时将文件放回相同位置，再运行：
+优先使用内置在线备份；手工复制时应先停止服务并同时处理 WAL。恢复时将备份放回数据库路径，再运行：
 
 ```bash
 npm run db:migrate
@@ -644,9 +707,13 @@ Key 错误正常返回 401；套餐限制返回 403；代码不存在返回 404�
 
 设置页保存后会即时设置当前进程环境变量。若手工编辑 `.env.local`，需要重启开发服务器。
 
+### AI分析按钮为什么只打开说明页
+
+这是隐私确认边界。打开弹窗只展示将发送的数据范围和当前模型；点击“生成AI分析”后才会把结构化指标与交易数值发送到 `AI_BASE_URL`。若按钮不可用，请检查 `AI_BASE_URL`、`AI_MODEL` 和 `AI_API_KEY` 是否同时配置，并重启服务。
+
 ### 修改行情源会不会删除交易
 
-不会删除交易。行情源、代码或复权口径改变后，现有 K 线会被标记为待刷新；只有在新行情成功返回并通过校验后，才会在事务内替换旧 K 线并重算分析。
+不会删除交易或旧 K 线。系统创建独立候选行情系列；只有新系列成功返回非空数据并通过校验后才切换为活动系列，旧系列保留为归档数据。
 
 ### 为什么股票代码不能修改
 
@@ -664,13 +731,14 @@ Key 错误正常返回 401；套餐限制返回 403；代码不存在返回 404�
 - 账户通过正整数编号隔离，尚无账户名称、券商和基础货币管理页面；
 - 支持原始价格与拆股复权，不单独计算现金分红总回报；
 - JSON 导入优先按导出文件中的股票代码映射本地股票，目标数据库仍需预先添加对应股票。
+- AI复盘依赖第三方模型服务，只总结本地确定性计算结果，不读取新闻、财报或实时行情，也不输出投资建议；模型响应通常慢于本地计算。
 
 适合后续扩展的方向：
 
 - 将手续费配置抽象为可复用券商/市场费率模板；
 - 增加股票删除的二次确认与备份机制；
 - 增加现金分红和总回报分析；
-- 增加行情刷新任务与失败重试；
+- 增加交易所精确休市日历和持久化跨进程任务队列；
 - 为 Route Handler 增加集成测试；
 - 增加账户名称、券商属性、基础货币和多币种汇率换算。
 

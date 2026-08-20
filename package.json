@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:backup": "tsx scripts/backup.ts",
     "db:recalculate": "tsx scripts/recalculate.ts",
     "seed": "tsx scripts/seed.ts",
     "test": "vitest run",

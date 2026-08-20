@@ -1,5 +1,6 @@
 import { sqlite } from "@/db";
-import type { Candle, Instrument, StockWorkspaceData, TradeContextSnapshot, TradeOutcome, TradeWithAnalysis } from "@/types";
+import { getActiveMarketSeries, getCandlesForActiveSeries } from "@/lib/market-data/storage";
+import type { Instrument, StockWorkspaceData, TradeContextSnapshot, TradeOutcome, TradeWithAnalysis } from "@/types";
 
 type Row = Record<string, unknown>;
 const num = (value: unknown) => value === null || value === undefined ? null : Number(value);
@@ -21,7 +22,6 @@ function mapInstrument(row: Row): Instrument {
     exitFeeModel: { ratePct: String(row.exitFeeRatePct ?? "0"), fixed: String(row.exitFeeFixed ?? "0"), minimum: String(row.exitFeeMinimum ?? "0") },
   };
 }
-function mapCandle(row: Row): Candle { return { id: Number(row.id), instrumentId: Number(row.instrument_id), time: String(row.timestamp), open: Number(row.open), high: Number(row.high), low: Number(row.low), close: Number(row.close), volume: Number(row.volume), source: String(row.source), adjustment: String(row.adjustment ?? "raw") as Candle["adjustment"] }; }
 function mapSnapshot(row: Row): TradeContextSnapshot | null {
   if (!row.snapshot_id) return null;
   return {
@@ -49,9 +49,9 @@ export function listTrades(instrumentId?: number): TradeWithAnalysis[] {
 
 export function getWorkspace(symbol: string): StockWorkspaceData | null {
   const instrument = getInstrumentBySymbol(symbol); if (!instrument) return null;
-  const candleRows = sqlite.prepare("SELECT * FROM candles WHERE instrument_id=? AND interval='1day' ORDER BY timestamp").all(instrument.id) as Row[];
+  const candles = getCandlesForActiveSeries(instrument.id);
   const levels = sqlite.prepare("SELECT id, price, type, label, note FROM manual_levels WHERE instrument_id=? ORDER BY created_at").all(instrument.id) as StockWorkspaceData["manualLevels"];
-  return { instrument, candles: candleRows.map(mapCandle), trades: listTrades(instrument.id), manualLevels: levels, updatedAt: candleRows.at(-1)?.timestamp ? String(candleRows.at(-1)?.timestamp) : null };
+  return { instrument, candles, trades: listTrades(instrument.id), manualLevels: levels, updatedAt: candles.at(-1)?.time ?? null, marketData: getActiveMarketSeries(instrument.id) };
 }
 
 export function dashboardData() { return { instruments: listInstruments(), trades: listTrades().slice(0, 12) }; }

@@ -128,4 +128,19 @@ export type StockWorkspaceData = {
   trades: TradeWithAnalysis[];
   manualLevels: Array<{ id: number; price: number; type: string; label: string; note: string }>;
   updatedAt: string | null;
+  marketData: {
+    id: number;
+    provider: string;
+    providerSymbol: string;
+    adjustment: PriceAdjustment;
+    earliestDate: string | null;
+    latestDate: string | null;
+    candleCount: number;
+    dataRevision: number;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    lastReconciledAt: string | null;
+    status: string;
+    qualityMessage: string;
+  } | null;
 };
