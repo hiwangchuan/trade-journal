@@ -126,7 +126,7 @@ export function buildStockAnalysisInput(data: StockWorkspaceData) {
       mfe20dPct: rounded(trade.outcome?.mfe20d ?? null, 2),
       mae20dPct: rounded(trade.outcome?.mae20d ?? null, 2),
     })),
-    manualLevels: data.manualLevels.map((level) => ({ type: level.type, price: level.price, label: level.label })),
+    manualLevels: data.manualLevels.filter((level) => level.active).map((level) => ({ type: level.type, price: level.price, label: level.label })),
     limitations,
   };
 }

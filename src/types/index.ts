@@ -15,6 +15,60 @@ export type Candle = {
 
 export type PriceAdjustment = "raw" | "splits";
 
+export type PriceLevelType = "SUPPORT" | "RESISTANCE" | "CUSTOM";
+export type PriceLevelAction = "CREATED" | "UPDATED" | "ARCHIVED" | "RESTORED";
+
+export type PriceLevelVersion = {
+  id: number;
+  revision: number;
+  action: PriceLevelAction;
+  price: number;
+  type: PriceLevelType;
+  label: string;
+  note: string;
+  effectiveDate: string;
+  recordedAt: string;
+};
+
+export type PriceLevelSegment = {
+  key: string;
+  price: number;
+  type: PriceLevelType;
+  label: string;
+  startDate: string;
+  endDate: string | null;
+  active: boolean;
+};
+
+export type PriceLevelStats = {
+  status: "WAITING" | "TOUCHED" | "BROKEN" | "ARCHIVED";
+  asOfDate: string | null;
+  currentDistancePct: number | null;
+  touchCount: number;
+  firstTouchDate: string | null;
+  firstBreakDate: string | null;
+  return5d: number | null;
+  return20d: number | null;
+  return60d: number | null;
+};
+
+export type PriceLevel = {
+  id: number;
+  instrumentId: number;
+  price: number;
+  type: PriceLevelType;
+  label: string;
+  note: string;
+  startDate: string;
+  endDate: string | null;
+  createdAt: string;
+  active: boolean;
+  revision: number;
+  versions: PriceLevelVersion[];
+  segments: PriceLevelSegment[];
+  stats: PriceLevelStats;
+};
+
 export type ExitFeeModel = {
   ratePct: string;
   fixed: string;
@@ -126,7 +180,7 @@ export type StockWorkspaceData = {
   instrument: Instrument;
   candles: Candle[];
   trades: TradeWithAnalysis[];
-  manualLevels: Array<{ id: number; price: number; type: string; label: string; note: string }>;
+  manualLevels: PriceLevel[];
   updatedAt: string | null;
   marketData: {
     id: number;
@@ -143,4 +197,68 @@ export type StockWorkspaceData = {
     status: string;
     qualityMessage: string;
   } | null;
+};
+
+export type DcaConfidence = "insufficient" | "low" | "medium" | "high";
+
+export type DcaForecastPoint = {
+  horizon: number;
+  date: string | null;
+  p20: number;
+  p50: number;
+  p80: number;
+  baselineP50: number;
+};
+
+export type DcaActualPoint = {
+  horizon: number;
+  date: string;
+  returnPct: number;
+  remainingQuantity: string;
+  realizedNetCash: string;
+  estimatedExitFee: string;
+};
+
+export type DcaCalibrationPoint = {
+  horizon: number;
+  actualReturnPct: number;
+  predictedMedianPct: number;
+  errorPct: number;
+  withinRange: boolean;
+};
+
+export type DcaCohortAnalysis = {
+  id: string;
+  runId: number;
+  accountId: number;
+  month: string;
+  anchorDate: string;
+  buyTradeIds: number[];
+  quantity: string;
+  averageEntryPrice: string;
+  investedAmount: string;
+  buyFees: string;
+  sampleCount: number;
+  confidence: DcaConfidence;
+  dataCutoffDate: string | null;
+  algorithmVersion: string;
+  forecastPoints: DcaForecastPoint[];
+  actualPoints: DcaActualPoint[];
+  calibration: DcaCalibrationPoint[];
+  currentReturnPct: number | null;
+  closed: boolean;
+};
+
+export type DcaAnalysisData = {
+  generatedAt: string;
+  algorithmVersion: string;
+  methodology: string;
+  cohorts: DcaCohortAnalysis[];
+  metrics: {
+    cohortCount: number;
+    sufficientCount: number;
+    calibrationCount: number;
+    intervalCoveragePct: number | null;
+    meanAbsoluteErrorPct: number | null;
+  };
 };

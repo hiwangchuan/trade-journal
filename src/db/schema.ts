@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const timestamps = {
   createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
@@ -127,6 +127,19 @@ export const manualLevels = sqliteTable("manual_levels", {
   price: real("price").notNull(), type: text("type", { enum: ["SUPPORT", "RESISTANCE", "CUSTOM"] }).notNull(), label: text("label").notNull().default(""), startDate: text("start_date"), endDate: text("end_date"), note: text("note").notNull().default(""), createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
 });
 
+export const manualLevelVersions = sqliteTable("manual_level_versions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  manualLevelId: integer("manual_level_id").notNull().references(() => manualLevels.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull(),
+  action: text("action", { enum: ["CREATED", "UPDATED", "ARCHIVED", "RESTORED"] }).notNull(),
+  price: real("price").notNull(),
+  type: text("type", { enum: ["SUPPORT", "RESISTANCE", "CUSTOM"] }).notNull(),
+  label: text("label").notNull().default(""),
+  note: text("note").notNull().default(""),
+  effectiveDate: text("effective_date").notNull(),
+  recordedAt: text("recorded_at").notNull().default("CURRENT_TIMESTAMP"),
+}, (table) => [uniqueIndex("manual_level_versions_level_revision").on(table.manualLevelId, table.revision)]);
+
 export const tradeAnalysisSnapshots = sqliteTable("trade_analysis_snapshots", {
   id: integer("id").primaryKey({ autoIncrement: true }), tradeId: integer("trade_id").notNull().unique().references(() => trades.id, { onDelete: "cascade" }), analysisVersion: text("analysis_version").notNull(), price: real("price").notNull(),
   range20High: real("range_20_high"), range20Low: real("range_20_low"), range20Percentile: real("range_20_percentile"),
@@ -143,3 +156,38 @@ export const tradeOutcomes = sqliteTable("trade_outcomes", {
   return1d: real("return_1d"), return3d: real("return_3d"), return5d: real("return_5d"), return10d: real("return_10d"), return20d: real("return_20d"), return60d: real("return_60d"),
   mfe5d: real("mfe_5d"), mae5d: real("mae_5d"), mfe20d: real("mfe_20d"), mae20d: real("mae_20d"), maxHigh20d: real("max_high_20d"), minLow20d: real("min_low_20d"), sellMissedGain20d: real("sell_missed_gain_20d"), buyValidationScore: real("buy_validation_score"), calculatedThrough: text("calculated_through"), updatedAt: text("updated_at").notNull().default("CURRENT_TIMESTAMP"),
 });
+
+export const dcaForecastRuns = sqliteTable("dca_forecast_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  instrumentId: integer("instrument_id").notNull().references(() => instruments.id, { onDelete: "cascade" }),
+  accountId: integer("account_id").notNull(),
+  cohortMonth: text("cohort_month").notNull(),
+  anchorDate: text("anchor_date").notNull(),
+  sourceTradeIds: text("source_trade_ids").notNull(),
+  algorithmVersion: text("algorithm_version").notNull(),
+  inputHash: text("input_hash").notNull(),
+  seriesId: integer("series_id").references(() => marketDataSeries.id, { onDelete: "set null" }),
+  adjustment: text("adjustment").notNull(),
+  dataCutoffDate: text("data_cutoff_date"),
+  quantity: text("quantity").notNull(),
+  averageEntryPrice: text("average_entry_price").notNull(),
+  investedAmount: text("invested_amount").notNull(),
+  buyFees: text("buy_fees").notNull(),
+  exitFeeModel: text("exit_fee_model").notNull(),
+  features: text("features"),
+  sampleCount: integer("sample_count").notNull().default(0),
+  confidence: text("confidence").notNull().default("insufficient"),
+  createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
+}, (table) => [
+  index("dca_forecast_runs_cohort").on(table.instrumentId, table.accountId, table.cohortMonth, table.createdAt),
+  index("dca_forecast_runs_input").on(table.inputHash, table.algorithmVersion),
+]);
+
+export const dcaForecastPoints = sqliteTable("dca_forecast_points", {
+  runId: integer("run_id").notNull().references(() => dcaForecastRuns.id, { onDelete: "cascade" }),
+  horizon: integer("horizon").notNull(),
+  p20: real("p20").notNull(),
+  p50: real("p50").notNull(),
+  p80: real("p80").notNull(),
+  baselineP50: real("baseline_p50").notNull(),
+}, (table) => [primaryKey({ columns: [table.runId, table.horizon] })]);
