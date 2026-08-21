@@ -1,5 +1,6 @@
 import { sqlite } from "@/db";
 import { getActiveMarketSeries, getCandlesForActiveSeries } from "@/lib/market-data/storage";
+import { listPriceLevels } from "@/lib/price-levels/persistence";
 import type { Instrument, StockWorkspaceData, TradeContextSnapshot, TradeOutcome, TradeWithAnalysis } from "@/types";
 
 type Row = Record<string, unknown>;
@@ -50,7 +51,7 @@ export function listTrades(instrumentId?: number): TradeWithAnalysis[] {
 export function getWorkspace(symbol: string): StockWorkspaceData | null {
   const instrument = getInstrumentBySymbol(symbol); if (!instrument) return null;
   const candles = getCandlesForActiveSeries(instrument.id);
-  const levels = sqlite.prepare("SELECT id, price, type, label, note FROM manual_levels WHERE instrument_id=? ORDER BY created_at").all(instrument.id) as StockWorkspaceData["manualLevels"];
+  const levels = listPriceLevels(instrument.id);
   return { instrument, candles, trades: listTrades(instrument.id), manualLevels: levels, updatedAt: candles.at(-1)?.time ?? null, marketData: getActiveMarketSeries(instrument.id) };
 }
 

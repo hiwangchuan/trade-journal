@@ -15,6 +15,60 @@ export type Candle = {
 
 export type PriceAdjustment = "raw" | "splits";
 
+export type PriceLevelType = "SUPPORT" | "RESISTANCE" | "CUSTOM";
+export type PriceLevelAction = "CREATED" | "UPDATED" | "ARCHIVED" | "RESTORED";
+
+export type PriceLevelVersion = {
+  id: number;
+  revision: number;
+  action: PriceLevelAction;
+  price: number;
+  type: PriceLevelType;
+  label: string;
+  note: string;
+  effectiveDate: string;
+  recordedAt: string;
+};
+
+export type PriceLevelSegment = {
+  key: string;
+  price: number;
+  type: PriceLevelType;
+  label: string;
+  startDate: string;
+  endDate: string | null;
+  active: boolean;
+};
+
+export type PriceLevelStats = {
+  status: "WAITING" | "TOUCHED" | "BROKEN" | "ARCHIVED";
+  asOfDate: string | null;
+  currentDistancePct: number | null;
+  touchCount: number;
+  firstTouchDate: string | null;
+  firstBreakDate: string | null;
+  return5d: number | null;
+  return20d: number | null;
+  return60d: number | null;
+};
+
+export type PriceLevel = {
+  id: number;
+  instrumentId: number;
+  price: number;
+  type: PriceLevelType;
+  label: string;
+  note: string;
+  startDate: string;
+  endDate: string | null;
+  createdAt: string;
+  active: boolean;
+  revision: number;
+  versions: PriceLevelVersion[];
+  segments: PriceLevelSegment[];
+  stats: PriceLevelStats;
+};
+
 export type ExitFeeModel = {
   ratePct: string;
   fixed: string;
@@ -126,7 +180,7 @@ export type StockWorkspaceData = {
   instrument: Instrument;
   candles: Candle[];
   trades: TradeWithAnalysis[];
-  manualLevels: Array<{ id: number; price: number; type: string; label: string; note: string }>;
+  manualLevels: PriceLevel[];
   updatedAt: string | null;
   marketData: {
     id: number;

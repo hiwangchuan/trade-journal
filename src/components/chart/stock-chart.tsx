@@ -2,9 +2,9 @@
 import { useEffect, useRef } from "react";
 import { CandlestickSeries, ColorType, createChart, createSeriesMarkers, HistogramSeries, LineSeries, LineStyle, type IChartApi, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import { smaSeries } from "@/lib/analysis/moving-average";
-import type { Candle, DcaCohortAnalysis, TradeWithAnalysis } from "@/types";
+import type { Candle, DcaCohortAnalysis, PriceLevelSegment, TradeWithAnalysis } from "@/types";
 
-type Props = { candles: Candle[]; trades: TradeWithAnalysis[]; selectedId: number | null; showMa20: boolean; showMa60: boolean; showTrades: boolean; dcaCohort: DcaCohortAnalysis | null; levels: Array<{ price: number; type: string; label: string }>; onSelect: (trade: TradeWithAnalysis) => void; onRecordAt: (date: string, price: number) => void };
+type Props = { candles: Candle[]; trades: TradeWithAnalysis[]; selectedId: number | null; showMa20: boolean; showMa60: boolean; showTrades: boolean; dcaCohort: DcaCohortAnalysis | null; levels: PriceLevelSegment[]; onSelect: (trade: TradeWithAnalysis) => void; onRecordAt: (date: string, price: number) => void };
 
 export default function StockChart({ candles, trades, selectedId, showMa20, showMa60, showTrades, dcaCohort, levels, onSelect, onRecordAt }: Props) {
   const host = useRef<HTMLDivElement>(null); const tooltip = useRef<HTMLDivElement>(null); const chartRef = useRef<IChartApi | null>(null);
@@ -43,7 +43,13 @@ export default function StockChart({ candles, trades, selectedId, showMa20, show
       for (const trade of trades) { const key = `${trade.tradeDate}:${trade.side}`; grouped.set(key, [...(grouped.get(key) ?? []), trade]); }
       createSeriesMarkers(candleSeries, [...grouped.values()].map((group) => { const trade = group[0]; return { time: trade.tradeDate as `${number}-${number}-${number}`, position: trade.side === "BUY" ? "belowBar" as const : "aboveBar" as const, color: trade.side === "BUY" ? "#34c17e" : "#f45252", shape: trade.side === "BUY" ? "arrowUp" as const : "arrowDown" as const, text: `${trade.side === "BUY" ? "B" : "S"}${group.length > 1 ? ` × ${group.length}` : ""}`, size: group.some((item) => item.id === selectedId) ? 1.3 : 1 }; }).sort((a,b) => String(a.time).localeCompare(String(b.time))));
     }
-    for (const level of levels) candleSeries.createPriceLine({ price: level.price, color: level.type === "SUPPORT" ? "rgba(52,193,126,.7)" : "rgba(244,82,82,.7)", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: level.label });
+    for (const level of levels) {
+      const points = candles.filter((candle) => candle.time >= level.startDate && (!level.endDate || candle.time < level.endDate));
+      if (!points.length) continue;
+      const color = level.type === "SUPPORT" ? "rgba(52,193,126,.78)" : level.type === "RESISTANCE" ? "rgba(244,82,82,.78)" : "rgba(167,139,250,.78)";
+      const series = chart.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: level.type === "CUSTOM" ? LineStyle.Dotted : LineStyle.Dashed, priceLineVisible: false, lastValueVisible: level.active, pointMarkersVisible: points.length === 1, pointMarkersRadius: 3, title: level.active ? level.label : "" });
+      series.setData(points.map((candle) => ({ time: candle.time as `${number}-${number}-${number}`, value: level.price })));
+    }
     chart.timeScale().fitContent();
     chart.subscribeClick((param) => { if (!param.time) return; const date = String(param.time); const sameDay = trades.filter((trade) => trade.tradeDate === date); if (sameDay.length) onSelect(sameDay[0]); });
     chart.subscribeCrosshairMove((param) => {

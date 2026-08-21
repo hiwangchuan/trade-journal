@@ -127,6 +127,19 @@ export const manualLevels = sqliteTable("manual_levels", {
   price: real("price").notNull(), type: text("type", { enum: ["SUPPORT", "RESISTANCE", "CUSTOM"] }).notNull(), label: text("label").notNull().default(""), startDate: text("start_date"), endDate: text("end_date"), note: text("note").notNull().default(""), createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP"),
 });
 
+export const manualLevelVersions = sqliteTable("manual_level_versions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  manualLevelId: integer("manual_level_id").notNull().references(() => manualLevels.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull(),
+  action: text("action", { enum: ["CREATED", "UPDATED", "ARCHIVED", "RESTORED"] }).notNull(),
+  price: real("price").notNull(),
+  type: text("type", { enum: ["SUPPORT", "RESISTANCE", "CUSTOM"] }).notNull(),
+  label: text("label").notNull().default(""),
+  note: text("note").notNull().default(""),
+  effectiveDate: text("effective_date").notNull(),
+  recordedAt: text("recorded_at").notNull().default("CURRENT_TIMESTAMP"),
+}, (table) => [uniqueIndex("manual_level_versions_level_revision").on(table.manualLevelId, table.revision)]);
+
 export const tradeAnalysisSnapshots = sqliteTable("trade_analysis_snapshots", {
   id: integer("id").primaryKey({ autoIncrement: true }), tradeId: integer("trade_id").notNull().unique().references(() => trades.id, { onDelete: "cascade" }), analysisVersion: text("analysis_version").notNull(), price: real("price").notNull(),
   range20High: real("range_20_high"), range20Low: real("range_20_low"), range20Percentile: real("range_20_percentile"),

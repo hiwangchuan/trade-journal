@@ -704,7 +704,7 @@ createdAt
 
 ## manual_levels
 
-用于用户自己画历史关键价位。
+用于维护用户当前有效或已归档的关键价位。所有生效日由服务端根据当时最新行情锁定，不允许客户端把后来判断回填到过去。
 
 ```text
 id
@@ -722,6 +722,31 @@ endDate nullable
 note
 createdAt
 ```
+
+## manual_level_versions
+
+保存价格位的不可变审计历史。创建、修改、归档和恢复都追加版本，不覆盖既有判断。
+
+```text
+id
+manualLevelId
+revision
+action
+
+CREATED
+UPDATED
+ARCHIVED
+RESTORED
+
+price
+type
+label
+note
+effectiveDate
+recordedAt
+```
+
+K 线按相邻版本的 `effectiveDate` 切分价格线区间。验证只能使用当前版本生效后的数据，至少展示触及次数、首次触及、首次破位及首次触及后 5/20/60 个交易日的价格表现。价格位不是订单或交易信号。
 
 ---
 
